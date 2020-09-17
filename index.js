@@ -23,8 +23,8 @@ const randomRooms = []; // array of objects: { name: str, usersInRoom: int }
 const activeRandomRooms = {};
 const namedRooms = {};
 /*
-semantically might be better to have namedRooms = 
-{
+semantically might be better to have 
+namedRooms = {
   roomName: {
     'usersInRoom': number,
     'player1': socket.id,
@@ -35,20 +35,23 @@ semantically might be better to have namedRooms =
   },
 }
 */
-const activeNamedRooms = {};
+// const activeNamedRooms = {};
 
 const socketIds = {};
 /*
-semantically might be better to have socketIds = 
-{
+semantically might be better to have
+socketIds = {
   socketId: {
     'roomName': string,
     'playerNumber': number
   },
 }
 */
-
+const has = Object.prototype.hasOwnProperty; // https://airbnb.io/javascript/#objects
 io.on('connection', (socket) => {
+  socket.on('error', (e) => {
+    console.log(e);
+  });
   console.log(`a user has connected with socket.id:${socket.id}`);
 
   // // Join a random room and associate the socket id
@@ -86,7 +89,7 @@ io.on('connection', (socket) => {
           randomRooms.shift(); // Time complexity O(n): scaling issue
         }
       } else { // all random rooms are filled, generate a new one
-        let name = `${getRandomRoomNumber}`;
+        let name = `${getRandomRoomNumber()}`;
         randomRooms.push({ name , usersInRoom : 1 });
         socket.join(name);
 
@@ -101,9 +104,8 @@ io.on('connection', (socket) => {
       }
     } else { // assign specific room
       // https://airbnb.io/javascript/#objects
-      const has = Object.prototype.hasOwnProperty;
-      if (has.call(namedRooms, roomName)) { // room name exists, i.e. this socket is joining
-        if (namedRooms[roomName].usersInRoom < MAX_USERS_PER_ROOM) {
+      if (has.call(namedRooms, roomName) && !namedRooms[roomName].isActive) { // room name exists, i.e. this socket is joining
+        if (namedRooms[roomName].usersInRoom < MAX_USERS_PER_ROOM) { // room not maxed; TODO: might not need conditional since we're removing room as soon as its usersInRoom property reaches 5
           socket.join(roomName);
           socketIds[socket.id] = { roomName };
           namedRooms[roomName].usersInRoom += 1;
@@ -115,11 +117,22 @@ io.on('connection', (socket) => {
           let playerNumber = namedRooms[roomName].usersInRoom;
           socketIds[socket.id].playerNumber = playerNumber;
           io.in(roomName).emit('announcement', `${socket.id} has joined the lobby as player #${socketIds[socket.id].playerNumber}`);
-        } else { // let the client socket know the room is filled; client side handles this use case
-          socket.emit('roomFilled', { filled: true });
-          console.log(`Cannot join ${roomName}. Is full`);
-        }
-      } else { // room name does not exist, i.e. this socket is creating the room
+
+          socket.emit('room-game-start', { time: namedRooms[roomName].time });
+          // Send "acknowledgement" to sender
+          socket.emit('player-assignment', { playerNumber: socketIds[socket.id].playerNumber });
+
+          // Move room to active
+          if (namedRooms[roomName].usersInRoom === 5) {
+            namedRooms[roomName].isActive = true;
+          }
+        } // else { // let the client socket know the room is filled; client side handles this use case
+        //   socket.emit('roomFilled', { filled: true });
+        //   // TODO: unshift namedRooms?
+
+        //   console.log(`Cannot join ${roomName}. Is full`);
+        // }
+      } else if (!has.call(namedRooms, roomName)) { // room name does not exist EITHER in waiting or active, i.e. this socket is creating the room
         // Add room name to room namespace
         namedRooms[roomName] = { usersInRoom: 1 };
 
@@ -132,10 +145,26 @@ io.on('connection', (socket) => {
         // console.log(JSON.stringify(namedRooms));
         let playerNumber = namedRooms[roomName].usersInRoom;
         socketIds[socket.id].playerNumber = playerNumber;
+
+        // Set the room game start time
+        const MS_PER_SECOND = 1000, secondsToGameStart = 15;
+        let timeToStartGame = Date.now() + (secondsToGameStart * MS_PER_SECOND);
+        namedRooms[roomName].time = timeToStartGame;
+        socket.emit('room-game-start', { time: timeToStartGame });
+        // Send "acknowledgement" to sender
+        socket.emit('player-assignment', { playerNumber: socketIds[socket.id].playerNumber });
+      } else if (has.call(namedRooms, roomName) && namedRooms[roomName].isActive) {
+        socket.emit('room-active-already');
       }
     }
-    // Send "acknowledgement" to sender
-    socket.emit('player-assignment', { playerNumber: socketIds[socket.id].playerNumber });
+  });
+
+  socket.on('game-starting', () => {
+    let roomName = socketIds[socket.id].roomName;
+    if (has.call(namedRooms, roomName)) { // room hasn't been moved already from maxing out room size
+      namedRooms[roomName].isActive = true;
+      console.log(`${roomName} has started their game`);
+    }
   });
 
   // Send this socket's car position to everyone else in the room
@@ -146,9 +175,30 @@ io.on('connection', (socket) => {
 
   socket.on('gameEnded', () => {
     socket.leave(socketIds[socket.id].roomName);
+    if (has.call(namedRooms, socketIds[socket.id].roomName)) {
+      delete namedRooms[socketIds[socket.id].roomName];
+      console.log(`Game ended: deleted ${socketIds[socket.id].roomName}`);
+    }
+  });
+
+  // when this socket disconnects; native socket event
+  socket.on('disconnect', () => {
+    socket.leave(socketIds[socket.id].roomName);
+    let numClients;
+    io.of('/').in(`${socketIds[socket.id].roomName}`).clients((error, clients) => {
+      numClients = clients.length;
+    });
+    if (has.call(namedRooms, socketIds[socket.id].roomName) && numClients === 0) {
+      delete namedRooms[socketIds[socket.id].roomName];
+      console.log(`deleted ${socketIds[socket.id].roomName}`);
+    }
   });
 });
 
 function getRandomRoomNumber() {
   return Math.floor(Math.random() * Math.floor(999));
 }
+
+// setInterval(() => {
+//   console.log('Checking for roo')
+// }, 30000)
