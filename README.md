@@ -22,7 +22,7 @@
 
 ## About the Project
 
-This repository holds all the server-side files for the typing game I developed. The two main reasons for this project was to (1) learn ***webpack*** and (2) create a more complete version of a typing game that expanded from the [typing game I contributed to for my front-end college course](https://github.com/beaubadilla/cpsc349_frontend_engineering). As of September 2020, this project's state is at a ***minimum viable product(MVP)*** level where all the core functionalities are implemented.
+This repository holds all the server-side files for the typing game I developed. The two main reasons for this project was to (1) learn ***webpack*** and ***websockets*** (2) create a more complete version of a typing game that expanded from the [typing game I contributed to for my front-end college course](https://github.com/beaubadilla/cpsc349_frontend_engineering). As of September 2020, this project's state is at a ***minimum viable product(MVP)*** level where all the core functionalities are implemented.
 
 ### Technologies
 Languages: JavaScript
